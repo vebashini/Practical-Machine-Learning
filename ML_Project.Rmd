@@ -1,0 +1,172 @@
+---
+title: "Practical Machine Learning Project"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.width=15, fig.height=7)
+options(width=120)
+library(knitr)
+library(caret)
+library(kernlab)
+library(lattice)
+library(ggplot2)
+library(plyr)
+library(rpart)
+library(corrplot)
+library(randomForest)
+library(readr)
+library(nnet)
+
+```
+
+## Executive Summary
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The goal of the project is to predict the manner in which a participant did the exercise. This is the "classe" variable in the training set.
+
+## Data Review
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).
+
+<!-- What you should submit -->
+<!-- The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. -->
+
+<!-- Peer Review Portion -->
+<!-- Your submission for the Peer Review portion should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-). -->
+
+<!-- Course Project Prediction Quiz Portion -->
+<!-- Apply your machine learning algorithm to the 20 test cases available in the test data above and submit your predictions in appropriate format to the Course Project Prediction Quiz for automated grading. -->
+
+<!-- Reproducibility -->
+<!-- Due to security concerns with the exchange of R code, your code will not be run during the evaluation by your classmates. Please be sure that if they download the repo, they will be able to view the compiled HTML version of your analysis. -->
+
+<!-- Prediction Assignment Writeupless  -->
+<!-- Background -->
+
+<!-- Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). -->
+
+<!-- Data -->
+<!-- The training data for this project are available here: -->
+<!-- https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv -->
+<!-- The test data are available here: -->
+<!-- https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv -->
+
+<!-- The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this 
+kind of assignment. -->
+
+## Analysis
+1. The data sets will be read in from the url supplied.
+3. Some exploratory data analysis will be done.
+2. The data will be cleaned.
+4. A few different models will be fitted.
+5. The out-of-sample error will be predicted.
+6. The best model will be used to predict how well an activity is done.
+
+
+```{r, cache=T}
+train_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(train_url, destfile = "training.csv")
+download.file(test_url, destfile = "testing.csv")
+```
+
+## Explore the data set information
+
+```{r}
+# Set seed to allow reproducibility
+set.seed(120021)
+train <- read_csv("training.csv")
+test <- read_csv("testing.csv")
+# investigate training data
+dim(train)
+# head(train)
+# str(train)
+# summary(train)
+```
+
+## Clean the data set
+
+We see quite a number of NAs in the data exploration, as well as some division by 0's.
+
+```{r}
+# Let's keep all columns that have 75% of actual data
+seventy_five_perc <- 0.75 * nrow(train)
+how_many_nas <- apply(train, 2, function(x){sum(is.na(x))})
+col_to_keep <- which(how_many_nas < seventy_five_perc)
+train_cleaned <- train[,col_to_keep]
+# Do the same for the test data set
+test_cleaned <- test[,col_to_keep]
+
+# There are also some timestamp and window columns that we should remove
+col_to_rem <- grep("timestamp|window|^X", names(train_cleaned))
+train_cleaned <- train_cleaned[,-col_to_rem]
+# Do the same for the test data set
+test_cleaned <- test_cleaned[,-col_to_rem]
+
+# Make the classe variable a factor
+train_cleaned$classe <- factor(train_cleaned$classe)
+
+```
+
+## Create the training and testing data sets
+```{r}
+
+inTrain <- createDataPartition(y=train_cleaned$classe, p=0.75, list=F)
+train_set <- train_cleaned[inTrain, ]
+train_test_set <- train_cleaned[-inTrain, ]
+dim(train_set)
+dim(train_test_set)
+train_set = na.omit(train_set)
+train_test_set = na.omit(train_test_set)
+dim(train_set)
+dim(train_test_set)
+
+# What does the classe levels look like
+plot(train_set$classe, col="light blue", main="Variable 'classe'", xlab="", ylab="Frequency")
+
+# What does the Correlation Matrix look like
+classe_col_num <- which(names(train_set) == "classe")
+correlationMatrix <- cor(train_set[, -c(1,classe_col_num)],use="pairwise.complete.obs")
+corrplot(correlationMatrix, method="color")
+```
+
+## Training Models
+
+```{r}
+# Fit models and check differences
+
+# Decision Tree
+modelFit1 <- rpart(classe~., data=train_set,  method="class")   
+predict1 <- predict(modelFit1, newdata=train_test_set, type="class")
+cf1 <- confusionMatrix(predict1, train_test_set$classe)
+cf1
+
+# Random Forest
+fitControl <- trainControl(method="cv", number=5, verboseIter = F, preProcOptions = "pca")
+modelFit2 <- train(classe~., data=train_set, method="rf", trControl=fitControl, verbose=F)
+predict2 <- predict(modelFit2, newdata=train_test_set) 
+confusionMatrix(predict2, train_test_set$classe) 
+
+# Support Vector Machine - linear
+modelFit3 <- train(classe~., data=train_set, method="svmLinear", trControl=fitControl)
+predict3 <- predict(modelFit3, newdata=train_test_set)
+#nrow(train_test_set); length(predict3)
+confusionMatrix(predict3, train_test_set$classe)
+
+# LogitBoost
+modelFit4 <- train(classe~., data=train_set, method="LogitBoost", trControl=fitControl)
+predict4 <- predict(modelFit4, newdata=train_test_set)
+confusionMatrix(predict4, train_test_set$classe)
+
+models <- c("Decision Tree", "Random Forest", "Support Vector Machine - linear", "LogitBoost")
+accuracy <- c(max(cf1$overall[1]), max(modelFit2$results$Accuracy), 
+              max(modelFit3$results$Accuracy), max(modelFit4$results$Accuracy))
+results <- cbind(models, accuracy)
+results
+```
+
+## Results
+The Random Forest performs best from the models fitted. This will be used to predict the quality of activity done by a participant. It must be kept in mind that the data was collected utilising healthy particpants. The model used for prediction may not do as well for a different population.
